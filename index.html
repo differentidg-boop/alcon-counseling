@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alcon諮商室</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #fff; --ink: #1d2433; --muted: #6b7385;
+    --brand: #0a5cad; --line: #e3e7ee; --reply: #eef5fc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    line-height: 1.6;
+  }
+  header { background: var(--brand); color: #fff; padding: 28px 20px 22px; text-align: center; }
+  header h1 { margin: 0; font-size: 24px; letter-spacing: 2px; }
+  header p { margin: 6px 0 16px; opacity: .85; font-size: 14px; }
+  .btn {
+    display: inline-block; background: #fff; color: var(--brand); text-decoration: none;
+    padding: 10px 22px; border-radius: 999px; font-weight: 600; font-size: 15px;
+  }
+  main { max-width: 680px; margin: 0 auto; padding: 16px; }
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; }
+  .chip {
+    flex: none; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    padding: 6px 14px; border-radius: 999px; font-size: 14px; cursor: pointer; font-family: inherit;
+  }
+  .chip.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+  .meta { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .tag { background: #eef1f6; color: var(--ink); padding: 2px 10px; border-radius: 999px; }
+  .text { white-space: pre-wrap; word-break: break-word; }
+  .reply {
+    margin-top: 12px; background: var(--reply); border-left: 3px solid var(--brand);
+    padding: 10px 12px; border-radius: 8px; white-space: pre-wrap; word-break: break-word;
+  }
+  .reply b { display: block; font-size: 13px; color: var(--brand); margin-bottom: 2px; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+  .note { text-align: center; color: var(--muted); font-size: 12px; padding: 8px 0 24px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Alcon諮商室</h1>
+    <p>心情抒發與市場洞見・完全匿名</p>
+    <a class="btn" href="https://docs.google.com/forms/d/e/1FAIpQLSdtQzKLBpnVCTHXxRcLHd4Tn2dzyn9aoZuo4pdcSrMvnMZyng/viewform" target="_blank" rel="noopener">我想說說話 ✍️</a>
+  </header>
+
+  <main>
+    <div class="chips" id="chips"></div>
+    <div id="list"><div class="empty">載入中…</div></div>
+    <div class="note">表單不記錄姓名與 email・內容經整理後公開・新內容約 5 分鐘後出現</div>
+  </main>
+
+<script>
+  // 試算表「問答」分頁發布到網路的 CSV 網址
+  const CSV_URL = '__CSV_URL__';
+  const BASE_TYPES = ['純抒發', '市場洞見', '公司政令想法', '對誰告白'];
+  let allPosts = [];
+  let current = '全部';
+
+  function parseCSV(text) {
+    const rows = []; let row = []; let field = ''; let q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+        else if (c === '"') q = false;
+        else field += c;
+      } else if (c === '"') q = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else if (c !== '\r') field += c;
+    }
+    if (field !== '' || row.length) { row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function typeOf(p) { return BASE_TYPES.includes(p.type) ? p.type : '其他'; }
+
+  function renderChips() {
+    const types = ['全部', ...BASE_TYPES, '其他'];
+    document.getElementById('chips').innerHTML = types.map(t => {
+      const n = t === '全部' ? allPosts.length : allPosts.filter(p => typeOf(p) === t).length;
+      return `<button class="chip ${t === current ? 'on' : ''}" data-t="${t}">${t} ${n}</button>`;
+    }).join('');
+    document.querySelectorAll('.chip').forEach(b => b.onclick = () => { current = b.dataset.t; renderChips(); renderList(); });
+  }
+
+  function renderList() {
+    const posts = current === '全部' ? allPosts : allPosts.filter(p => typeOf(p) === current);
+    const el = document.getElementById('list');
+    if (!posts.length) { el.innerHTML = '<div class="empty">目前還沒有內容</div>'; return; }
+    el.innerHTML = posts.map(p => `
+      <div class="card">
+        <div class="meta"><span class="tag">${esc(p.type)}</span><span>${esc(p.date)}</span></div>
+        <div class="text">${esc(p.text)}</div>
+        ${p.reply ? `<div class="reply"><b>回覆</b>${esc(p.reply)}</div>` : ''}
+      </div>`).join('');
+  }
+
+  fetch(CSV_URL + (CSV_URL.includes('?') ? '&' : '?') + 't=' + Date.now())
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+    .then(text => {
+      const rows = parseCSV(text).slice(1); // 去掉標題列
+      allPosts = rows
+        .filter(r => (r[2] || '').trim())
+        .map(r => ({ date: r[0] || '', type: r[1] || '', text: r[2] || '', reply: r[3] || '' }));
+      renderChips(); renderList();
+    })
+    .catch(() => {
+      document.getElementById('list').innerHTML = '<div class="empty">讀取失敗，請稍後重新整理</div>';
+    });
+</script>
+</body>
+</html>

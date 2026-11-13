@@ -95,7 +95,12 @@
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(Object.assign({ password }, payload))
     });
-    return res.json();
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      throw new Error('後台回應異常，請確認 Apps Script 已用「所有人」部署新版本');
+    }
   }
 
   function isTodo(p) { return !p.status || p.status === '待處理'; }
@@ -190,7 +195,7 @@
       $('logoutBtn').hidden = false;
       render();
     } catch (e) {
-      $('loginErr').textContent = e.message === 'Failed to fetch' ? '連線失敗，請稍後再試' : e.message;
+      $('loginErr').textContent = (e.message === 'Failed to fetch' || e.message === 'Load failed') ? '連不到後台：請確認部署時「誰可以存取」選了「所有人」' : e.message;
       $('loginBtn').disabled = false;
     }
   }

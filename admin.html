@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Alcon諮商室・管理</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #fff; --ink: #1d2433; --muted: #6b7385;
+    --brand: #0a5cad; --line: #e3e7ee; --red: #c62828; --green: #2e7d32; --amber: #b26a00;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    line-height: 1.6;
+  }
+  header { background: #102a43; color: #fff; padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: 1px; }
+  header button { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.5); border-radius: 8px; padding: 4px 10px; font-size: 13px; font-family: inherit; }
+  main { max-width: 720px; margin: 0 auto; padding: 16px; }
+
+  .login { max-width: 340px; margin: 80px auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 24px; text-align: center; }
+  .login h2 { margin: 0 0 16px; font-size: 18px; }
+  input[type=password], textarea, select {
+    width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+    font-size: 16px; font-family: inherit; background: #fff; color: var(--ink);
+  }
+  .primary { width: 100%; margin-top: 12px; background: var(--brand); color: #fff; border: 0; border-radius: 10px; padding: 11px; font-size: 16px; font-weight: 600; font-family: inherit; }
+  .primary:disabled { opacity: .5; }
+  .err { color: var(--red); font-size: 14px; min-height: 20px; margin-top: 8px; }
+
+  .bar { display: flex; gap: 8px; overflow-x: auto; margin-bottom: 14px; }
+  .chip { flex: none; border: 1px solid var(--line); background: var(--card); padding: 6px 14px; border-radius: 999px; font-size: 14px; font-family: inherit; color: var(--ink); }
+  .chip.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  .card.todo { border-left: 4px solid var(--red); }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .tag { background: #eef1f6; color: var(--ink); padding: 2px 10px; border-radius: 999px; }
+  .pub-yes { background: #e3f2e5; color: var(--green); padding: 2px 10px; border-radius: 999px; }
+  .pub-no { background: #fdecea; color: var(--red); padding: 2px 10px; border-radius: 999px; }
+  .date { margin-left: auto; }
+  .text { white-space: pre-wrap; word-break: break-word; font-size: 16px; margin-bottom: 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  textarea { min-height: 80px; resize: vertical; }
+  textarea.note { min-height: 44px; }
+  .row { display: flex; gap: 10px; align-items: flex-end; }
+  .row > div { flex: 1; }
+  .save { margin-top: 0; width: auto; padding: 10px 22px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #1d2433; color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Alcon諮商室・管理</h1>
+    <button id="logoutBtn" hidden>登出</button>
+  </header>
+
+  <main id="app">
+    <div class="login" id="login">
+      <h2>管理者登入</h2>
+      <input type="password" id="pw" placeholder="請輸入密碼" autocomplete="current-password">
+      <button class="primary" id="loginBtn">登入</button>
+      <div class="err" id="loginErr"></div>
+    </div>
+  </main>
+  <div class="toast" id="toast"></div>
+
+<script>
+  // Apps Script 部署後的網址（…/exec）
+  const API_URL = '__API_URL__';
+  const STATUSES = ['待處理', '處理中', '已回覆', '不公開'];
+  const FILTERS = ['待處理', '全部', '已回覆', '不公開'];
+  let password = '';
+  let posts = [];
+  let filter = '待處理';
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  async function api(payload) {
+    // text/plain 避免瀏覽器先送預檢請求，Apps Script 才收得到
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(Object.assign({ password }, payload))
+    });
+    return res.json();
+  }
+
+  function isTodo(p) { return !p.status || p.status === '待處理'; }
+
+  function matches(p) {
+    if (filter === '全部') return true;
+    if (filter === '待處理') return isTodo(p) || p.status === '處理中';
+    return p.status === filter;
+  }
+
+  function render() {
+    const counts = {
+      '待處理': posts.filter(p => isTodo(p) || p.status === '處理中').length,
+      '全部': posts.length,
+      '已回覆': posts.filter(p => p.status === '已回覆').length,
+      '不公開': posts.filter(p => p.status === '不公開').length
+    };
+    const list = posts.filter(matches);
+    $('app').innerHTML = `
+      <div class="bar">${FILTERS.map(f => `<button class="chip ${f === filter ? 'on' : ''}" data-f="${f}">${f} ${counts[f]}</button>`).join('')}
+        <button class="chip" id="reload">↻ 重新整理</button></div>
+      ${list.length ? list.map(card).join('') : '<div class="empty">這裡目前沒有留言</div>'}`;
+    document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; render(); });
+    $('reload').onclick = load;
+    document.querySelectorAll('.save').forEach(b => b.onclick = () => save(Number(b.dataset.row)));
+  }
+
+  function card(p) {
+    const pubTag = p.pub === '是'
+      ? '<span class="pub-yes">同意公開</span>'
+      : '<span class="pub-no">不公開（只給管理者）</span>';
+    const status = p.status || '待處理';
+    return `
+      <div class="card ${isTodo(p) ? 'todo' : ''}">
+        <div class="meta"><span class="tag">${esc(p.type)}</span>${pubTag}<span class="date">${esc(p.date)}</span></div>
+        <div class="text">${esc(p.text)}</div>
+        <label>回覆</label>
+        <textarea id="r${p.row}" placeholder="寫下你的回覆…">${esc(p.reply)}</textarea>
+        <label>內部備註（不會公開）</label>
+        <textarea class="note" id="n${p.row}">${esc(p.note)}</textarea>
+        <div class="row" style="margin-top:10px">
+          <div><label style="margin-top:0">處理狀態</label>
+            <select id="s${p.row}">${STATUSES.map(s => `<option ${s === status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+          <button class="primary save" data-row="${p.row}">儲存</button>
+        </div>
+        ${p.pub === '是' ? '<div class="hint">儲存後約 5 分鐘出現在公開網頁；狀態選「不公開」可撤下。</div>' : '<div class="hint">填寫者選擇不公開，回覆只會留在後台。</div>'}
+      </div>`;
+  }
+
+  async function save(row) {
+    const p = posts.find(x => x.row === row);
+    const reply = $('r' + row).value.trim();
+    let status = $('s' + row).value;
+    // 有寫回覆但狀態還是待處理，自動改成已回覆
+    if (reply && status === '待處理') status = '已回覆';
+    const note = $('n' + row).value.trim();
+    const btn = document.querySelector(`.save[data-row="${row}"]`);
+    btn.disabled = true; btn.textContent = '儲存中…';
+    try {
+      const r = await api({ action: 'save', row, id: p.id, reply, status, note });
+      if (!r.ok) throw new Error(r.error || '儲存失敗');
+      Object.assign(p, { reply, status, note });
+      toast('已儲存 ✓');
+      render();
+    } catch (e) {
+      toast(e.message || '儲存失敗，請再試一次');
+      btn.disabled = false; btn.textContent = '儲存';
+    }
+  }
+
+  async function load() {
+    $('app').innerHTML = '<div class="empty">載入中…</div>';
+    try {
+      const r = await api({ action: 'list' });
+      if (!r.ok) throw new Error(r.error);
+      posts = r.posts;
+      render();
+    } catch (e) {
+      $('app').innerHTML = '<div class="empty">讀取失敗，請重新整理</div>';
+    }
+  }
+
+  async function login() {
+    password = $('pw').value;
+    if (!password) return;
+    $('loginBtn').disabled = true; $('loginErr').textContent = '';
+    try {
+      const r = await api({ action: 'list' });
+      if (!r.ok) throw new Error(r.error || '密碼錯誤');
+      try { sessionStorage.setItem('alconAdminPw', password); } catch (e) {}
+      posts = r.posts;
+      $('logoutBtn').hidden = false;
+      render();
+    } catch (e) {
+      $('loginErr').textContent = e.message === 'Failed to fetch' ? '連線失敗，請稍後再試' : e.message;
+      $('loginBtn').disabled = false;
+    }
+  }
+
+  $('loginBtn').onclick = login;
+  $('pw').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+  $('logoutBtn').onclick = () => {
+    try { sessionStorage.removeItem('alconAdminPw'); } catch (e) {}
+    location.reload();
+  };
+
+  // 同一個分頁重新整理時不用再輸入密碼；關掉分頁就要重新登入
+  try {
+    const saved = sessionStorage.getItem('alconAdminPw');
+    if (saved) { $('pw').value = saved; login(); }
+  } catch (e) {}
+</script>
+</body>
+</html>
